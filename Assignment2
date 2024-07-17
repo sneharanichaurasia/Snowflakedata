@@ -1,0 +1,184 @@
+SnehaRani									EmpID:1008730
+
+1.How will you use to change the warehouse for workload processing to a warehouse named ‘COMPUTE_WH_XL’?
+Answer:
+USE WAREHOUSE COMPUTE_WH_XL; 
+
+2. Consider a table vehicle_inventory that stores vehicle information of all vehicles in your dealership. The table has only one VARIANT column called vehicle_data which stores information in JSON format. The data is given below:
+{
+“date_of_arrival”: “2021-04-28”,
+“supplier_name”: “Hillside Honda”,
+“contact_person”: {
+“name”: “Derek Larssen”,
+“phone”: “8423459854”
+},
+“vehicle”: [
+{
+“make”: “Honda”,
+“model”: “Civic”,
+“variant”: “GLX”,
+“year”: “2020”
+}
+]
+}
+What is the command to retrieve supplier_name?
+Answer:
+SELECT 
+    vehicle_data:supplier_name::STRING AS supplier_name
+FROM 
+    vehicle_inventory;
+
+3.From a terminal window, how to start SnowSQL from the command prompt ? And write the steps to load the data from local folder into a Snowflake table usin three types of internal stages.
+Answer:
+On snwsql we have to follow these steps---->
+snowsql -a   <account identifier>
+user:
+password:
+use role accountadmin;
+use warehouse warehouse_name;
+show database;
+#listing
+LIST @~; 
+# TABLE STAGES ONLY
+
+LIST @%STAGE_NAME; 
+CREATE STAGE NEW_STAGE; 
+SHOW STAGES; 
+#listing the stage name
+LIST @STAGE_NAME; 
+
+4. Create an X-Small warehouse named xf_tuts_wh using the CREATE WAREHOUSE command with below options 
+a) Size with x-small
+b) which can be automatically suspended after 10 mins
+c) setup how to automatically resume the warehouse
+d) Warehouse should be suspended once after created
+Answer: CREATE WAREHOUSE XF_TUTS_WH WITH 
+  WAREHOUSE_SIZE = 'X-SMALL', 
+  AUTO_SUSPEND = 600, 
+  AUTO_RESUME = TRUE, 
+  INITIALLY_SUSPENDED = TRUE;
+
+5. A CSV file ‘customer.csv’ consists of 1 or more records, with 1 or more fields in each record, and sometimes a header record. Records and fields in each file are separated by delimiters. How will
+Load the file into snowflake table ?
+Answer: 
+create or replace file_format   csv_file_format
+type = ‘CSV’
+field_optionally_enclosed_by = ‘ "" ’
+field_delimiter = ‘ ,’
+Skip_header = 1;
+ 
+COPY INTO my_table
+  FROM @my_stage/customer.csv
+  FILE_FORMAT = (FORMAT_NAME = my_csv_format)
+  --ON_ERROR = 'CONTINUE/SKIP_FILE/ABORT_STATEMENT';
+
+6. Write the commands to disable < auto-suspend > option for a virtual warehouse
+Answer: Alter warehouse comput_wh set auto_suspend=0;
+
+7. What is the command to concat the column named 'EMPLOYEE' between two % signs ?
+Answer: SELECT CONCAT('%', EMPLOYEE, '%') AS EMP from table
+FROM table_name;
+
+8. You have stored the below JSON in a table named car_sales as a variant column
+
+{
+  "customer": [
+    {
+      "address": "San Francisco, CA",
+      "name": "Joyce Ridgely",
+      "phone": "16504378889"
+    }
+  ],
+  "date": "2017-04-28",
+  "dealership": "Valley View Auto Sales",
+  "salesperson": {
+    "id": "55",
+    "name": "Frank Beasley"
+  },
+  "vehicle": [
+    {
+      "extras": [
+        "ext warranty",
+        "paint protection"
+      ],
+      "make": "Honda",
+      "model": "Civic",
+      "price": "20275",
+      "year": "2017"
+    }
+  ]
+}
+How will you query the table to get the dealership data?
+Answer: SELECT 
+    car_sales:dealership::STRING AS dealership_name
+FROM 
+    car_sales;
+
+9. A medium size warehouse runs in Auto-scale mode for 3 hours with a resize from Medium (4 servers per cluster) to Large (8 servers per cluster). Warehouse is resized from Medium to Large at 1:30 hours, Cluster 1 runs continuously, Cluster 2 runs continuously for the 2nd and 3rd hours, Cluster 3 runs for 15 minutes in the 3rd hour. How many total credits will be consumed
+Answer: 34
+
+10. What is the command to check status of snowpipe?
+SELECT  SYSTEM$PIPE_STATUS ('PIPE_NAME')
+ALTER PIPE PIPE_NAME REFRESH;
+
+11. What are the different methods of getting/accessing/querying data from Time travel , Assume the table name is 'CUSTOMER' and please write the command for each method.
+SELECT * FROM CUSTOMER AT 
+(TIMESTAMP => '<time_stamp>'::timestamp_tz);
+SELECT * FROM CUSTOMER BEFORE 
+(TIMESTAMP => '<time_stamp>'::timestamp_tz); 
+SELECT *
+FROM CUSTOMER BEFORE
+(STATEMENT => '<query_id>');
+
+12. If comma is defined as column delimiter in file "employee.csv" and if we get extra comma in the data how to handle this scenario?
+create or replace file_format   csv_file_format
+type = ‘CSV’
+field_optionally_enclosed_by = ‘ """" ’
+field_delimiter = ‘ ,’
+Skip_header = 1;
+ 
+COPY INTO my_table
+  FROM @my_stage/employee.csv
+  FILE_FORMAT = (FORMAT_NAME = my_csv_format)
+  ON_ERROR = 'CONTINUE'
+  VALIDATION_MODE = RETURN_ERRORS;
+
+
+CREATE OR REPLACE REJECTED AS
+SELECT REJECTED_RECORDS FROM TABLES (RESULT_SCAN(LAST_QUERY_ID ()));
+ 
+INSERT INTO REJECTED 
+SELECT REJECTED_RECORDS FROM TABLES (RESULT_SCAN(LAST_QUERY_ID ()));
+ 
+SELECT * FROM REJECTED;
+
+13. What is the command to read data directly from S3 bucket/External/Internal Stage
+  --Create external stage object
+create or replace stage sneha_s3_ext_avro_pipe_stage
+  URL = 's3://snowflake-aws-demo1/snowflake/orc/'
+  STORAGE_INTEGRATION = sneha_s3_ext_avro_pipe
+  file_format = avro_format;
+  
+COPY INTO ingest_data.public.user_avro FROM @INGEST_DATA.public.ext_avro_stage FILE_FORMAT=(TYPE=AVRO) ON_ERROR='CONTINUE';
+
+14. Lets assume we have table with name 'products' which contains duplicate rows. How will delete the duplicate rows ?
+SELECT DISTINCT(ID),COL_1,COL_2 FROM PRODUCTS
+ORDER BY ID,
+INSERT INTO NEW_TABLE (ID,COL_1,COL_2) SELECT DISTINCT(ID),COL_1, COL_2 FROM PRODUCTS
+ORDER BY ID;
+DROP TABLE PRODUCTS;
+ALTER TABLE NEW_TABLE RENAME PRODUCTS;
+
+15.How is data unloaded out of Snowflake?
+
+on sonwsql
+snowsql -a <identifier>
+user
+password
+use  snehaDB;
+show tables;
+copy into @%my_stage
+from employee
+file_format = (type =csv field_optionally_enclosed_by='"');
+list @%employee
+get @my_stage file://c:\temp\Employee\unload;
