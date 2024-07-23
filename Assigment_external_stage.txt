@@ -153,7 +153,8 @@ Once set up, storing data in S3 with Snowflake doesn't cost anything extra. S3 s
 
 
 
-How many partitions got scanned from snowflake table : zero partitions their and we have not created any partitions.
+How many partitions got scanned from snowflake table : 355 partitions..
+
  
 
 
