@@ -138,7 +138,7 @@ FROM CUSTOMER_SNOWFLAKE_TABLE B
 LEFT OUTER JOIN 
 CUSTOMER_DATA A
 ON
-A.C_CUSTOMER_SK = B.C_CUSTOMER_SK;
+A.C_CUSTOMER_SK = B.C_CUSTOMER_SK);
 
 
 Now we can directly query data from s3 through view. What is the disadvantage of using 
