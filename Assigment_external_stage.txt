@@ -1,0 +1,203 @@
+use role accountadmin;
+use warehouse compute_wh;
+use database demo_db;
+
+-- 2.----------------------- query this data in s3 from snowflake----------------------------------------------------------------
+CREATE OR REPLACE TRANSIENT TABLE DEMO_DB.PUBLIC.CUSTOMER_TEST
+AS
+SELECT * FROM 
+"SNOWFLAKE_SAMPLE_DATA"."TPCDS_SF100TCL"."CUSTOMER";
+
+create or replace STORAGE INTEGRATION my_s3_integration_external
+  type = External_stage
+  storage_provider = s3
+  enabled = true
+  storage_aws_role_arn = 'arn:aws:iam::905418194718:role/snowflake-sneha1'
+  storage_allowed_locations = ('s3://snowflake-data-sneha1/snowflake-data/Customer_folder/');
+
+  
+desc integration my_s3_integration_external;
+
+create or replace stage my_s3_assignment
+  storage_integration = my_s3_integration_external
+  url = 's3://snowflake-data-sneha1/snowflake-data/Customer_folder/'
+ ;
+
+COPY INTO @DEMO_DB.PUBLIC.my_s3_assignment/Customer_folder/
+from
+DEMO_DB.PUBLIC.CUSTOMER_TEST;
+
+list @my_s3_assignment/Customer_folder/;
+
+-- 3.------------------------------------------------------------------------------
+create or replace file format MY_CSV_FORMAT
+type = 'csv';
+
+SELECT $1 C_CUSTOMER_SK,
+$2 C_CUSTOMER_ID ,
+$3 C_CURRENT_CDEMO_SK ,
+$4 C_CURRENT_HDEMO_SK ,
+$5 C_CURRENT_ADDR_SK,
+$6 C_FIRST_SHIPTO_DATE_SK ,
+$7 C_FIRST_SALES_DATE_SK ,
+$8 C_SALUTATION ,
+$9 C_FIRST_NAME ,
+$10 C_LAST_NAME,
+$11 C_PREFERRED_CUST_FLAG ,
+$12 C_BIRTH_DAY ,
+$13 C_BIRTH_MONTH ,
+$14 C_BIRTH_YEAR,
+$16 C_LOGIN ,
+$17 C_EMAIL_ADDRESS ,
+$18 C_LAST_REVIEW_DATE
+FROM @DEMO_DB.PUBLIC.my_s3_assignment/Customer_folder/
+(file_format => DEMO_DB.PUBLIC.MY_CSV_FORMAT);
+
+
+---------------------------------- Filter data directly from s3-------------------------------------------------
+
+SELECT $1 C_CUSTOMER_SK,
+$2 C_CUSTOMER_ID ,
+$3 C_CURRENT_CDEMO_SK ,
+$4 C_CURRENT_HDEMO_SK ,
+$5 C_CURRENT_ADDR_SK,
+$6 C_FIRST_SHIPTO_DATE_SK ,
+$7 C_FIRST_SALES_DATE_SK ,
+$8 C_SALUTATION ,
+$9 C_FIRST_NAME ,
+$10 C_LAST_NAME,
+$11 C_PREFERRED_CUST_FLAG ,
+$12 C_BIRTH_DAY ,
+$13 C_BIRTH_MONTH ,
+$14 C_BIRTH_YEAR,
+$16 C_LOGIN ,
+$17 C_EMAIL_ADDRESS ,
+$18 C_LAST_REVIEW_DATE
+FROM @DEMO_DB.PUBLIC.my_s3_assignment/Customer_folder/
+(file_format => DEMO_DB.PUBLIC.MY_CSV_FORMAT)
+WHERE C_CUSTOMER_SK ='64596949';
+
+----------------------------------------- Execute group by------------------------------------------------
+
+SELECT $9 C_FIRST_NAME,$10 C_LAST_NAME,COUNT(*)
+FROM @DEMO_DB.PUBLIC.my_s3_assignment/Customer_folder/
+(file_format => DEMO_DB.PUBLIC.MY_CSV_FORMAT)
+GROUP BY $9,$10;
+
+
+
+-- 4.-------------------------
+
+CREATE OR REPLACE VIEW CUSTOMER_DATA
+AS
+SELECT $1 C_CUSTOMER_SK,
+$2 C_CUSTOMER_ID ,
+$3 C_CURRENT_CDEMO_SK ,
+$4 C_CURRENT_HDEMO_SK ,
+$5 C_CURRENT_ADDR_SK,
+$6 C_FIRST_SHIPTO_DATE_SK ,
+$7 C_FIRST_SALES_DATE_SK ,
+$8 C_SALUTATION ,
+$9 C_FIRST_NAME ,
+$10 C_LAST_NAME,
+$11 C_PREFERRED_CUST_FLAG ,
+$12 C_BIRTH_DAY ,
+$13 C_BIRTH_MONTH ,
+$14 C_BIRTH_YEAR,
+$16 C_LOGIN ,
+$17 C_EMAIL_ADDRESS ,
+$18 C_LAST_REVIEW_DATE
+FROM @DEMO_DB.PUBLIC.my_s3_assignment/Customer_folder/
+(file_format => DEMO_DB.PUBLIC.MY_CSV_FORMAT);
+
+---------------------------------Query data directly on view----------------------
+SELECT * FROM CUSTOMER_DATA;
+
+
+
+4.-------------------------- CREATE VIEW OVER S3 DATA------------------------------------------------------------------
+
+Create or replace transient table CUSTOMER_SNOWFLAKE_TABLE
+AS
+SELECT * FROM CUSTOMER_TEST limit 10000;
+
+
+SELECT B.* 
+FROM CUSTOMER_SNOWFLAKE_TABLE B
+LEFT OUTER JOIN 
+CUSTOMER_DATA A
+ON
+A.C_CUSTOMER_SK = B.C_CUSTOMER_SK;
+
+DEMO_DB.PUBLIC.my_s3_assignment/Customer_folder/
+
+COPY INTO @DEMO_DB.PUBLIC.my_s3_assignment/Customer_folder/
+from(
+SELECT B.* 
+FROM CUSTOMER_SNOWFLAKE_TABLE B
+LEFT OUTER JOIN 
+CUSTOMER_DATA A
+ON
+A.C_CUSTOMER_SK = B.C_CUSTOMER_SK;
+
+
+Now we can directly query data from s3 through view. What is the disadvantage of using 
+this approach ? Can you see partitions being scanned in the backend ?
+ANswer:
+DISADVANTAGE is this view created without partitions hence it will scan through all the data and will take time to return the results.
+
+Now we successfully joined data in s3 with snowflake table. It may look simple but this 
+approach has lot of potential. Can you mention few below,
+Answer:
+Once set up, storing data in S3 with Snowflake doesn't cost anything extra. S3 stores data in compressed form, which saves storage space and reduces costs. This setup only needs to be configured once for ongoing benefits.
+
+
+
+How many partitions got scanned from snowflake table : zero partitions their and we have not created any partitions.
+ 
+
+
+-- 5.----------------------------
+
+
+COPY INTO @DEMO_DB.PUBLIC.my_s3_assignment/Customer_joined_data/
+from(
+SELECT B.* 
+FROM CUSTOMER_SNOWFLAKE_TABLE B
+LEFT OUTER JOIN 
+CUSTOMER_DATA A
+ON
+A.C_CUSTOMER_SK = B.C_CUSTOMER_SK
+);
+
+
+-- 6.--------------------------ADVANTAGES AND DISADVANTAGES----------------------------------------
+
+-- PROS
+Storage Capacity:Snowflake runs on Microsoft Azure, offering scalable and user-friendly cloud storage solutions ideal for handling large amounts of data.
+
+Multi-Cloud Support:You can deploy Snowflake on Azure, Google Cloud, and AWS, allowing seamless integration across different cloud platforms to meet diverse business needs.
+
+Server Scalability:Unlike traditional data warehouses, Snowflake operates in the cloud, enabling flexible scaling of computing resources based on demand without needing to invest in physical servers.
+
+Security Features: Snowflake provides robust security measures such as IP whitelisting, two-factor authentication, and AES 256 encryption to protect sensitive data during storage and transmission.
+
+Performance Optimization:Snowflake databases are designed for optimal performance without constant monitoring, allowing users to organize and process data efficiently.
+
+Disaster Recovery:Snowflake ensures data availability through replication across multiple data centers, providing reliable access to data in case of emergencies.
+
+Scalable Performance:Snowflake clusters adjust dynamically to handle varying workloads, ensuring consistent performance even during peak usage periods.
+
+
+-- CONS
+Unstructured Data Support:Snowflake currently supports semi-structured and structured data types, with plans for future integration of unstructured data support.
+
+Bulk Data Load Challenges:Migrating data to Snowflake can be complex. While Snowpipe offers continuous loading, alternative solutions like Zuar Runner may be more effective for managing large-scale data migration and automation.
+
+No Data Constraints:Snowflake's scalability and pay-as-you-go model have no predefined limits, which can lead to unexpected costs if usage exceeds expectations, particularly in computing and storage.
+
+
+
+
+
+
