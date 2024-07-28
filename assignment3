@@ -1,0 +1,235 @@
+External Stage on S3
+
+ 
+
+-------------------------- Create a file format for JSON------------------------------------------------
+CREATE OR REPLACE FILE FORMAT MY_JSON_FORMAT
+TYPE = 'JSON'
+STRIP_OUTER_ARRAY = TRUE
+;
+c. Create Stage: Use below SQL statement in Snowflake to create external stage on s3(AWS).
+
+CREATE OR REPLACE STAGE ASSIGNMENT3.PERSON_SCHEMA3.PERSON_DATA_JSON_A3
+URL='s3://snowflake-assignment3/snowflake-assignment3/'
+CREDENTIALS = (AWS_KEY_ID = 'xxxxxxxxx' 
+               AWS_SECRET_KEY = 'xxxxxxxxxxxxxxxxxx')
+FILE_FORMAT = ASSIGNMENT3.PERSON_SCHEMA3.MY_JSON_FORMAT;
+
+-------------------------------------------------Checking--------------------------------------------
+list @ASSIGNMENT3.PERSON_SCHEMA3.PERSON_DATA_JSON_A3;
+---------------------------------------------------Staging-------------------------------------------------
+desc stage ASSIGNMENT3.PERSON_SCHEMA3.PERSON_DATA_JSON_A3;
+
+d. CREATE table in Snowflake with VARIANT column.
+CREATE OR REPLACE TABLE PERSON (PERSONDATA VARIANT);
+
+e. Create a Snowpipe with Auto Ingest Enable
+
+CREATE OR REPLACE PIPE ASSIGNMENT3.PERSON_SCHEMA3.person_pipe AUTO_INGEST = TRUE AS
+COPY INTO PERSON
+FROM ( 
+    SELECT $1 
+    FROM @ASSIGNMENT3.PERSON_SCHEMA3.PERSON_DATA_JSON_A3
+)
+FILE_FORMAT = (FORMAT_NAME = 'ASSIGNMENT3.PERSON_SCHEMA3.MY_JSON_FORMAT')
+ON_ERROR = 'CONTINUE';
+-- lISTING
+SHOW PIPES;
+------------------------------------------------------------------------------------------------------------------------
+-- Below are few ways we can validation if Snowpipe rUn 
+-- successfully.
+-- 1 . Check the pipe status using below command, it shows 
+RUNNIG and it also shows pendingFileCount.
+
+select system$pipe_status('person_pipe');
+
+Check COPY_HISTORY for the table you are loading data to. If 
+there is any error with Data Load, you can find that error here to 
+debug the Load issue
+select * from table (information_schema.copy_history(table_name=>'person',start_time=>dateadd(hours,-1, current_timestamp())));
+
+3. Finally check if data is loaded to table by querying the table
+SELECT * FROM PERSON;
+create or replace stream person_stream on table person;
+desc stream person_stream;
+----------Checking stream data----------------
+SELECT * FROM person_stream;
+
+-- to see the arn on notification
+desc pipe PERSON_PIPE;
+
+-- Table for storing person_age information
+CREATE TABLE PERSON_AGE (
+    Name VARCHAR(100),
+    Age INT
+);
+
+-- Table for storing person_location information
+CREATE TABLE PERSON_LOCATION (
+    Name VARCHAR(100),
+    Location VARCHAR(100)
+);
+2. Create a table to Load the unnested data from PERSON_NESTED. 
+CREATE OR REPLACE TABLE PERSON_MASTER (
+    Id int,
+    Name STRING,
+    Age INT,
+    Location STRING,
+    Zip STRING
+);
+
+Change Data Capture using Streams, Tasks and Merge. 
+1.Create Streams on PERSON_NESTED table to capture the change data on PERSON_NESTED table and use TASKS to Run SQL/Stored Procedure to Unnested the data from PERSON_NESTED and create PERSON_MASTER table.
+
+CREATE OR REPLACE PROCEDURE ASSIGNMENT3.PERSON_SCHEMA3.upload_person_data()
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+EXECUTE AS OWNER
+AS
+$$
+var sqlTextMerge = `
+    MERGE INTO ASSIGNMENT3.PERSON_SCHEMA3.PERSON_MASTER P
+    USING (
+        SELECT 
+            S.PERSONDATA:ID::INT AS ID,
+            S.PERSONDATA:Name::STRING AS NAME,
+            S.PERSONDATA:age::STRING AS AGE,
+            S.PERSONDATA:location::STRING AS LOCATION,
+            S.PERSONDATA:zip::STRING AS ZIP
+        FROM ASSIGNMENT3.PERSON_SCHEMA3.person_stream S
+        WHERE S.METADATA$ACTION = 'INSERT' OR S.METADATA$ISUPDATE = 'TRUE'
+    ) S
+    ON P.ID = S.ID
+    WHEN MATCHED THEN
+        UPDATE SET
+            P.NAME = S.NAME,
+            P.AGE = S.AGE,
+            P.LOCATION = S.LOCATION,
+            P.ZIP = S.ZIP
+    WHEN NOT MATCHED THEN
+        INSERT (ID, NAME, AGE, LOCATION, ZIP)
+        VALUES (S.ID, S.NAME, S.AGE, S.LOCATION, S.ZIP);
+`;
+
+var sqlTextInsert1 = `
+    INSERT INTO ASSIGNMENT3.PERSON_SCHEMA3.PERSON_AGE (Name, Age)
+    SELECT NAME, AGE
+    FROM ASSIGNMENT3.PERSON_SCHEMA3.PERSON_MASTER;
+`;
+
+var sqlTextInsert2 = `
+    INSERT INTO ASSIGNMENT3.PERSON_SCHEMA3.PERSON_LOCATION (Name, LOCATION)
+    SELECT NAME, LOCATION
+    FROM ASSIGNMENT3.PERSON_SCHEMA3.PERSON_MASTER
+    WHERE LOCATION IS NOT NULL;
+`;
+// Execute the MERGE operation
+snowflake.execute({sqlText: sqlTextMerge});
+// Execute the first INSERT statement
+snowflake.execute({sqlText: sqlTextInsert1});
+// Execute the second INSERT statement
+snowflake.execute({sqlText: sqlTextInsert2});
+return `SUCCESS`;
+$$;
+
+
+3. Create a TASK which run every 1 min and look for data in Stream PERSON_NESTED_STREAM, if data found in Stream then task will EXECUTE if not TASK will be SKIPPED without any doing anything.
+
+CREATE OR REPLACE TASK ASSIGNMENT3.PERSON_SCHEMA3.PERSON_TASK
+WAREHOUSE='COMPUTE_WH'
+SCHEDULE='1 minute'
+WHEN SYSTEM$STREAM_HAS_DATA('ASSIGNMENT3.PERSON_SCHEMA3.person_stream') AS
+CALL ASSIGNMENT3.PERSON_SCHEMA3.upload_person_data()
+;
+//refresh the task
+alter pipe person_pipe refresh;
+//resume the task
+ALTER TASK PERSON_TASK RESUME;
+-- CHECKIng THE DATA using query.
+//checking person_nested data
+select * from person;
+//checking person_ master data
+SELECT * FROM PERSON_MASTER;
+//checking person_ age data
+SELECT * FROM PERSON_AGE;
+//checking person_ location data
+SELECT * FROM PERSON_LOCATION;
+
+
+
+
+
+
+
+
+
+ELT IN SNOWFLAKE USING STORED PROCEDURE 
+a) Create stored procedure to run Multiple SQL statements to automate data Load from PERSON_MASTER to two tables PERSON_AGE(Name, Age) and PERSON_LOCATION(Name, Location). This stored procedure should be called by TASK.
+ b) Stored Procedure Call : 
+c) CALL PERSON_MASTER_PROCEDURE(arguments1); Create Stored Procedure which runs below 2 SQLs. 
+1.Insert data into Location table from Person Master table. 
+2. Insert data into Age table from Person Master table
+
+
+CREATE OR REPLACE PROCEDURE ASSIGNMENT3.PERSON_SCHEMA3.upload_person_data()
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+EXECUTE AS OWNER
+AS
+$$
+var sqlTextMerge = `
+    MERGE INTO ASSIGNMENT3.PERSON_SCHEMA3.PERSON_MASTER P
+    USING (
+        SELECT 
+            S.PERSONDATA:ID::INT AS ID,
+            S.PERSONDATA:Name::STRING AS NAME,
+            S.PERSONDATA:age::STRING AS AGE,
+            S.PERSONDATA:location::STRING AS LOCATION,
+            S.PERSONDATA:zip::STRING AS ZIP
+        FROM ASSIGNMENT3.PERSON_SCHEMA3.person_stream S
+        WHERE S.METADATA$ACTION = 'INSERT' OR S.METADATA$ISUPDATE = 'TRUE'
+    ) S
+    ON P.ID = S.ID
+    WHEN MATCHED THEN
+        UPDATE SET
+            P.NAME = S.NAME,
+            P.AGE = S.AGE,
+            P.LOCATION = S.LOCATION,
+            P.ZIP = S.ZIP
+    WHEN NOT MATCHED THEN
+        INSERT (ID, NAME, AGE, LOCATION, ZIP)
+        VALUES (S.ID, S.NAME, S.AGE, S.LOCATION, S.ZIP);
+`;
+
+var sqlTextInsert1 = `
+    INSERT INTO ASSIGNMENT3.PERSON_SCHEMA3.PERSON_AGE (Name, Age)
+    SELECT NAME, AGE
+    FROM ASSIGNMENT3.PERSON_SCHEMA3.PERSON_MASTER;
+`;
+
+var sqlTextInsert2 = `
+    INSERT INTO ASSIGNMENT3.PERSON_SCHEMA3.PERSON_LOCATION (Name, LOCATION)
+    SELECT NAME, LOCATION
+    FROM ASSIGNMENT3.PERSON_SCHEMA3.PERSON_MASTER
+    WHERE LOCATION IS NOT NULL;
+`;
+
+// Execute the MERGE operation
+snowflake.execute({sqlText: sqlTextMerge});
+
+// Execute the first INSERT statement
+snowflake.execute({sqlText: sqlTextInsert1});
+
+// Execute the second INSERT statement
+snowflake.execute({sqlText: sqlTextInsert2});
+
+return `SUCCESS`;
+$$;
+
+
+truncate data from all table
+TRUNCATE TABLE PERSON;
+TRUNCATE TABLE PERSON_MASTER;
+TRUNCATE TABLE PERSON_LOCATION;
+TRUNCATE TABLE person_age;
+
